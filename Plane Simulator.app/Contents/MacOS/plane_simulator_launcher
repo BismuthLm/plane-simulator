@@ -10,6 +10,9 @@ cd "$RESOURCES_DIR"
 # Make update checker executable
 chmod +x update_checker.py
 
+# Set the working directory before running the update checker
+cd "$RESOURCES_DIR"
+
 # Run update checker
 ./update_checker.py
 
