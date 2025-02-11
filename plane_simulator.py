@@ -13,6 +13,11 @@ import colorsys
 # Initialize Pygame
 pygame.init()
 
+# Get the screen info
+screen_info = pygame.display.Info()
+DESKTOP_WIDTH = screen_info.current_w
+DESKTOP_HEIGHT = screen_info.current_h
+
 # Constants
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -32,9 +37,12 @@ COLORS = {
 }
 
 # Set up the display
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Top-Down Plane Simulator")
 clock = pygame.time.Clock()
+
+# Fullscreen state
+is_fullscreen = False
 
 class TerrainChunk:
     def __init__(self, chunk_x, chunk_y):
@@ -170,8 +178,8 @@ class Environment:
         # Calculate visible chunks
         start_chunk_x = int(camera_x // (CHUNK_SIZE * TILE_SIZE)) - 1
         start_chunk_y = int(camera_y // (CHUNK_SIZE * TILE_SIZE)) - 1
-        end_chunk_x = start_chunk_x + (SCREEN_WIDTH // (CHUNK_SIZE * TILE_SIZE)) + 3
-        end_chunk_y = start_chunk_y + (SCREEN_HEIGHT // (CHUNK_SIZE * TILE_SIZE)) + 3
+        end_chunk_x = start_chunk_x + (surface.get_width() // (CHUNK_SIZE * TILE_SIZE)) + 3
+        end_chunk_y = start_chunk_y + (surface.get_height() // (CHUNK_SIZE * TILE_SIZE)) + 3
         
         # Draw visible chunks
         for chunk_x in range(start_chunk_x, end_chunk_x):
@@ -185,7 +193,7 @@ class Environment:
                     screen_x = chunk_screen_x + tile_x * TILE_SIZE
                     screen_y = chunk_screen_y + tile_y * TILE_SIZE
                     
-                    if -TILE_SIZE <= screen_x <= SCREEN_WIDTH and -TILE_SIZE <= screen_y <= SCREEN_HEIGHT:
+                    if -TILE_SIZE <= screen_x <= surface.get_width() and -TILE_SIZE <= screen_y <= surface.get_height():
                         color = random.choice(COLORS[tile_type])
                         pygame.draw.rect(surface, color, 
                                       (screen_x, screen_y, TILE_SIZE, TILE_SIZE))
@@ -208,8 +216,8 @@ class Plane:
     
     def draw(self, surface, camera_x, camera_y):
         # Calculate screen position
-        screen_x = SCREEN_WIDTH // 2
-        screen_y = SCREEN_HEIGHT // 2
+        screen_x = surface.get_width() // 2
+        screen_y = surface.get_height() // 2
         
         # Draw plane as pixel art style triangle
         nose_angle = math.radians(self.angle)
@@ -230,6 +238,24 @@ class Plane:
         # Draw a small circle in the center of the plane
         pygame.draw.circle(surface, (200, 0, 0), (screen_x, screen_y), 2)
 
+def toggle_fullscreen():
+    global screen, is_fullscreen, SCREEN_WIDTH, SCREEN_HEIGHT
+    is_fullscreen = not is_fullscreen
+    if is_fullscreen:
+        # Store current window size before going fullscreen
+        if not pygame.display.get_surface().get_flags() & pygame.FULLSCREEN:
+            SCREEN_WIDTH = pygame.display.get_surface().get_width()
+            SCREEN_HEIGHT = pygame.display.get_surface().get_height()
+        screen = pygame.display.set_mode((DESKTOP_WIDTH, DESKTOP_HEIGHT), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
+
+def handle_resize(event):
+    global SCREEN_WIDTH, SCREEN_HEIGHT
+    if not is_fullscreen:
+        SCREEN_WIDTH = event.w
+        SCREEN_HEIGHT = event.h
+
 def main():
     plane = Plane()
     environment = Environment()
@@ -240,6 +266,13 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:  # F11 to toggle fullscreen
+                    toggle_fullscreen()
+                elif event.key == pygame.K_ESCAPE and is_fullscreen:  # ESC to exit fullscreen
+                    toggle_fullscreen()
+            elif event.type == pygame.VIDEORESIZE and not is_fullscreen:
+                handle_resize(event)
         
         # Handle continuous key presses
         keys = pygame.key.get_pressed()
@@ -259,14 +292,17 @@ def main():
         screen.fill(COLORS['sky'])
         
         # Draw environment (centered on plane)
-        environment.draw(screen, plane.world_x - SCREEN_WIDTH//2, plane.world_y - SCREEN_HEIGHT//2)
+        environment.draw(screen, plane.world_x - screen.get_width()//2, 
+                        plane.world_y - screen.get_height()//2)
         
-        # Draw plane
+        # Draw plane (centered on screen)
         plane.draw(screen, plane.world_x, plane.world_y)
         
         # Update display
         pygame.display.flip()
         clock.tick(60)
+
+    pygame.quit()
 
 if __name__ == "__main__":
     main()
