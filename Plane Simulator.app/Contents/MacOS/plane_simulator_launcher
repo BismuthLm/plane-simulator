@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Get the directory where this script is located
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Go to the Resources directory where our game files are
+cd "$DIR/../Resources"
+
+# Ensure virtual environment exists
+if [ ! -d "venv" ]; then
+    /usr/bin/python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+else
+    source venv/bin/activate
+fi
+
+# Run the game
+./plane_simulator.py
