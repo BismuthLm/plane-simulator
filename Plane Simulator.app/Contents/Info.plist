@@ -18,5 +18,9 @@
     <string>AppIcon</string>
     <key>LSBackgroundOnly</key>
     <string>0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
 </dict>
 </plist>

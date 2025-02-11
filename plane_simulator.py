@@ -10,8 +10,9 @@ import random
 import noise  # For improved terrain generation
 import colorsys
 
-# Initialize Pygame
+# Initialize Pygame with double buffering
 pygame.init()
+pygame.display.gl_set_attribute(pygame.GL_DOUBLEBUFFER, 1)
 
 # Get the screen info
 screen_info = pygame.display.Info()
@@ -50,6 +51,7 @@ class TerrainChunk:
         self.chunk_y = chunk_y
         self.tiles = {}  # Dictionary to store tile types
         self.features = []  # List to store special features
+        self.surface = None  # Cache the rendered chunk
         self.generate()
     
     def generate(self):
@@ -66,18 +68,17 @@ class TerrainChunk:
                 
                 # Determine tile type based on noise values
                 if elevation < -0.2:  # Water
-                    self.tiles[(x, y)] = 'water'
-                    # Add beach tiles around water
+                    self.tiles[(x, y)] = ('water', random.choice(COLORS['water']))
                     if elevation > -0.25:
-                        self.tiles[(x, y)] = 'beach'
+                        self.tiles[(x, y)] = ('beach', random.choice(COLORS['beach']))
                 else:
                     if forest > 0.2:
                         if forest > 0.4:
-                            self.tiles[(x, y)] = 'dense_tree'
+                            self.tiles[(x, y)] = ('dense_tree', random.choice(COLORS['dense_tree']))
                         else:
-                            self.tiles[(x, y)] = 'tree'
+                            self.tiles[(x, y)] = ('tree', random.choice(COLORS['tree']))
                     else:
-                        self.tiles[(x, y)] = 'grass'
+                        self.tiles[(x, y)] = ('grass', random.choice(COLORS['grass']))
         
         # Generate rivers
         if random.random() < 0.3:  # 30% chance for a chunk to have a river
@@ -135,12 +136,24 @@ class TerrainChunk:
             
             # Add river tiles
             for px, py in river_points:
-                self.tiles[(px, py)] = 'water'
+                self.tiles[(px, py)] = ('water', random.choice(COLORS['water']))
                 # Add beach tiles around river
                 for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                     beach_x, beach_y = px + dx, py + dy
-                    if (beach_x, beach_y) in self.tiles and self.tiles[(beach_x, beach_y)] == 'grass':
-                        self.tiles[(beach_x, beach_y)] = 'beach'
+                    if (beach_x, beach_y) in self.tiles and self.tiles[(beach_x, beach_y)][0] == 'grass':
+                        self.tiles[(beach_x, beach_y)] = ('beach', random.choice(COLORS['beach']))
+
+    def render_chunk(self):
+        if self.surface is None:
+            chunk_pixel_size = CHUNK_SIZE * TILE_SIZE
+            self.surface = pygame.Surface((chunk_pixel_size, chunk_pixel_size))
+            
+            for (tile_x, tile_y), (tile_type, color) in self.tiles.items():
+                pygame.draw.rect(self.surface, color,
+                               (tile_x * TILE_SIZE, tile_y * TILE_SIZE,
+                                TILE_SIZE, TILE_SIZE))
+        
+        return self.surface
 
 class Environment:
     def __init__(self):
@@ -158,7 +171,7 @@ class Environment:
         
         for x in range(start_x, start_x + runway_width):
             for y in range(start_y, start_y + runway_length):
-                chunk.tiles[(x, y)] = 'runway'
+                chunk.tiles[(x, y)] = ('runway', random.choice(COLORS['runway']))
     
     def get_chunk(self, chunk_x, chunk_y):
         chunk_key = (chunk_x, chunk_y)
@@ -172,7 +185,7 @@ class Environment:
         tile_x = world_x % CHUNK_SIZE
         tile_y = world_y % CHUNK_SIZE
         chunk = self.get_chunk(chunk_x, chunk_y)
-        return chunk.tiles.get((tile_x, tile_y), 'grass')
+        return chunk.tiles.get((tile_x, tile_y), ('grass', random.choice(COLORS['grass'])))
     
     def draw(self, surface, camera_x, camera_y):
         # Calculate visible chunks
@@ -185,34 +198,40 @@ class Environment:
         for chunk_x in range(start_chunk_x, end_chunk_x):
             for chunk_y in range(start_chunk_y, end_chunk_y):
                 chunk = self.get_chunk(chunk_x, chunk_y)
-                chunk_screen_x = chunk_x * CHUNK_SIZE * TILE_SIZE - camera_x
-                chunk_screen_y = chunk_y * CHUNK_SIZE * TILE_SIZE - camera_y
+                chunk_screen_x = int(chunk_x * CHUNK_SIZE * TILE_SIZE - camera_x)
+                chunk_screen_y = int(chunk_y * CHUNK_SIZE * TILE_SIZE - camera_y)
                 
-                # Draw tiles
-                for (tile_x, tile_y), tile_type in chunk.tiles.items():
-                    screen_x = chunk_screen_x + tile_x * TILE_SIZE
-                    screen_y = chunk_screen_y + tile_y * TILE_SIZE
+                # Only render if chunk is visible
+                if (chunk_screen_x + CHUNK_SIZE * TILE_SIZE >= 0 and
+                    chunk_screen_x < surface.get_width() and
+                    chunk_screen_y + CHUNK_SIZE * TILE_SIZE >= 0 and
+                    chunk_screen_y < surface.get_height()):
                     
-                    if -TILE_SIZE <= screen_x <= surface.get_width() and -TILE_SIZE <= screen_y <= surface.get_height():
-                        color = random.choice(COLORS[tile_type])
-                        pygame.draw.rect(surface, color, 
-                                      (screen_x, screen_y, TILE_SIZE, TILE_SIZE))
+                    # Render chunk to its cached surface
+                    chunk_surface = chunk.render_chunk()
+                    surface.blit(chunk_surface, (chunk_screen_x, chunk_screen_y))
 
 class Plane:
     def __init__(self):
-        self.world_x = 0
-        self.world_y = 0
-        self.angle = 0  # degrees
-        self.speed = 5
+        self.world_x = 0.0  # Use floating point for precise position
+        self.world_y = 0.0
+        self.angle = 0.0
+        self.speed = 5.0
         self.size = int(TILE_SIZE * 1.5)
+        self.last_update = pygame.time.get_ticks()
     
     def move(self):
+        # Calculate time since last update for smooth movement
+        current_time = pygame.time.get_ticks()
+        dt = (current_time - self.last_update) / 1000.0  # Convert to seconds
+        self.last_update = current_time
+        
         # Convert angle to radians for math calculations
         rad = math.radians(self.angle)
         
-        # Update world position based on angle and speed
-        self.world_x += math.cos(rad) * self.speed
-        self.world_y -= math.sin(rad) * self.speed
+        # Update world position based on angle and speed with time delta
+        self.world_x += math.cos(rad) * self.speed * dt * 60  # Normalize to 60 FPS
+        self.world_y -= math.sin(rad) * self.speed * dt * 60
     
     def draw(self, surface, camera_x, camera_y):
         # Calculate screen position
@@ -260,30 +279,35 @@ def main():
     plane = Plane()
     environment = Environment()
     running = True
+    last_frame = pygame.time.get_ticks()
     
     while running:
+        current_frame = pygame.time.get_ticks()
+        dt = (current_frame - last_frame) / 1000.0
+        last_frame = current_frame
+        
         # Event handling
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_F11:  # F11 to toggle fullscreen
+                if event.key == pygame.K_F11:
                     toggle_fullscreen()
-                elif event.key == pygame.K_ESCAPE and is_fullscreen:  # ESC to exit fullscreen
+                elif event.key == pygame.K_ESCAPE and is_fullscreen:
                     toggle_fullscreen()
             elif event.type == pygame.VIDEORESIZE and not is_fullscreen:
                 handle_resize(event)
         
-        # Handle continuous key presses
+        # Handle continuous key presses with smooth acceleration
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT]:
-            plane.angle += 3
+            plane.angle += 180 * dt  # 180 degrees per second
         if keys[pygame.K_RIGHT]:
-            plane.angle -= 3
+            plane.angle -= 180 * dt
         if keys[pygame.K_UP]:
-            plane.speed = min(plane.speed + 0.2, 20)
+            plane.speed = min(plane.speed + 12 * dt, 20)  # Accelerate over 2 seconds
         if keys[pygame.K_DOWN]:
-            plane.speed = max(plane.speed - 0.2, 1)
+            plane.speed = max(plane.speed - 12 * dt, 1)
         
         # Update plane position
         plane.move()
@@ -292,8 +316,9 @@ def main():
         screen.fill(COLORS['sky'])
         
         # Draw environment (centered on plane)
-        environment.draw(screen, plane.world_x - screen.get_width()//2, 
-                        plane.world_y - screen.get_height()//2)
+        environment.draw(screen, 
+                        int(plane.world_x - screen.get_width()//2), 
+                        int(plane.world_y - screen.get_height()//2))
         
         # Draw plane (centered on screen)
         plane.draw(screen, plane.world_x, plane.world_y)
